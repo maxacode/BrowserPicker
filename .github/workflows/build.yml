@@ -1,12 +1,10 @@
-name: Build BrowserPicker
+name: Build and Release BrowserPicker
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,7 +12,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Build Application Bundle
       run: |
@@ -29,15 +27,61 @@ jobs:
         
         # Copy Info.plist
         cp Info.plist.example BrowserPicker.app/Contents/Info.plist
+
+    - name: Install Apple Certificate
+      env:
+        APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      run: |
+        # Set up temporary keychain
+        KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+        security create-keychain -p "password" "$KEYCHAIN_PATH"
+        security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+        security unlock-keychain -p "password" "$KEYCHAIN_PATH"
         
-        # Ad-hoc sign the application (note: this will still trigger Gatekeeper on other Macs)
-        codesign --force --deep --sign - BrowserPicker.app
+        # Decode and import the certificate
+        echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+        security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -A
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "password" "$KEYCHAIN_PATH"
+        rm certificate.p12
+
+    - name: Sign, Notarize, and Staple Application
+      env:
+        APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      run: |
+        # 1. Sign the app with the hardened runtime (required for notarization)
+        codesign --force --options runtime --deep --sign "$APPLE_SIGNING_IDENTITY" BrowserPicker.app
         
-        # Zip the app
-        zip -r BrowserPicker.zip BrowserPicker.app
+        # 2. Zip the app for submission
+        /usr/bin/ditto -c -k --keepParent BrowserPicker.app BrowserPicker.zip
+        
+        # 3. Submit to Apple for notarization and wait for the result
+        xcrun notarytool submit BrowserPicker.zip \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+          
+        # 4. Staple the notarization ticket directly to the app bundle
+        xcrun stapler staple BrowserPicker.app
+        
+        # 5. Create the final distribution zip
+        /usr/bin/ditto -c -k --keepParent BrowserPicker.app BrowserPicker-Notarized.zip
+
+    - name: Release Note
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: BrowserPicker-Notarized.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload Artifact
+      if: "!startsWith(github.ref, 'refs/tags/')"
       uses: actions/upload-artifact@v4
       with:
-        name: BrowserPicker-App
-        path: BrowserPicker.zip
+        name: BrowserPicker-Notarized
+        path: BrowserPicker-Notarized.zip
