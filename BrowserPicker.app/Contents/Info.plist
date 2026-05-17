@@ -8,6 +8,8 @@
     <string>com.user.BrowserPicker</string>
     <key>CFBundleName</key>
     <string>BrowserPicker</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>

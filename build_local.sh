@@ -9,6 +9,10 @@ echo "🔨 Building BrowserPicker..."
 mkdir -p BrowserPicker.app/Contents/MacOS
 mkdir -p BrowserPicker.app/Contents/Resources
 
+# Copy icon
+echo "🎨 Copying App Icon..."
+cp AppIcon.icns BrowserPicker.app/Contents/Resources/
+
 # Compile Swift code
 echo "📝 Compiling Swift code..."
 swiftc main.swift -o BrowserPicker.app/Contents/MacOS/BrowserPicker

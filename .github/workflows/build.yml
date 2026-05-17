@@ -19,6 +19,9 @@ jobs:
         mkdir -p BrowserPicker.app/Contents/MacOS
         mkdir -p BrowserPicker.app/Contents/Resources
         
+        # Copy App Icon
+        cp AppIcon.icns BrowserPicker.app/Contents/Resources/
+        
         # Compile Swift code
         swiftc main.swift -o BrowserPicker.app/Contents/MacOS/BrowserPicker
         
