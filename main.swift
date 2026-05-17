@@ -358,21 +358,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         
-        let config = NSWorkspace.OpenConfiguration()
         if let arg = browser.profileArg {
-            config.arguments = [arg]
-        }
-        
-        if let urlToOpen = openedURL {
-            NSWorkspace.shared.open([urlToOpen], withApplicationAt: appUrl, configuration: config) { _, _ in
-                DispatchQueue.main.async {
-                    NSApplication.shared.terminate(nil)
-                }
+            // For Chromium profiles, we must force a new process instance so the argument is respected.
+            // Chromium will intercept the launch, open the profile, and exit the duplicate process.
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            var args = ["-n", "-a", appUrl.path, "--args", arg]
+            if let urlToOpen = openedURL {
+                args.append(urlToOpen.absoluteString)
+            }
+            process.arguments = args
+            
+            do {
+                try process.run()
+            } catch {
+                print("Failed to run profile process: \(error)")
+            }
+            
+            DispatchQueue.main.async {
+                NSApplication.shared.terminate(nil)
             }
         } else {
-            NSWorkspace.shared.openApplication(at: appUrl, configuration: config) { _, _ in
-                DispatchQueue.main.async {
-                    NSApplication.shared.terminate(nil)
+            let config = NSWorkspace.OpenConfiguration()
+            if let urlToOpen = openedURL {
+                NSWorkspace.shared.open([urlToOpen], withApplicationAt: appUrl, configuration: config) { _, _ in
+                    DispatchQueue.main.async {
+                        NSApplication.shared.terminate(nil)
+                    }
+                }
+            } else {
+                NSWorkspace.shared.openApplication(at: appUrl, configuration: config) { _, _ in
+                    DispatchQueue.main.async {
+                        NSApplication.shared.terminate(nil)
+                    }
                 }
             }
         }
