@@ -1,0 +1,43 @@
+name: Build BrowserPicker
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Build Application Bundle
+      run: |
+        mkdir -p BrowserPicker.app/Contents/MacOS
+        mkdir -p BrowserPicker.app/Contents/Resources
+        
+        # Compile Swift code
+        swiftc main.swift -o BrowserPicker.app/Contents/MacOS/BrowserPicker
+        
+        # Create PkgInfo
+        echo -n "APPL????" > BrowserPicker.app/Contents/PkgInfo
+        
+        # Copy Info.plist
+        cp Info.plist.example BrowserPicker.app/Contents/Info.plist
+        
+        # Ad-hoc sign the application (note: this will still trigger Gatekeeper on other Macs)
+        codesign --force --deep --sign - BrowserPicker.app
+        
+        # Zip the app
+        zip -r BrowserPicker.zip BrowserPicker.app
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: BrowserPicker-App
+        path: BrowserPicker.zip

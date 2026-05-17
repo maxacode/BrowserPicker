@@ -3,10 +3,45 @@ import SwiftUI
 import ApplicationServices
 
 // Define a struct to hold browser information
-struct BrowserItem {
+struct BrowserItem: Equatable {
     let name: String
     let bundleId: String
     let icon: NSImage
+    let profileArg: String? // e.g. "--profile-directory=Profile 1"
+    
+    // Unique ID for SwiftUI
+    var id: String {
+        return bundleId + (profileArg ?? "")
+    }
+}
+
+// Function to parse Brave profiles
+func getBraveProfiles() -> [(name: String, arg: String)] {
+    let path = NSString(string: "~/Library/Application Support/BraveSoftware/Brave-Browser/Local State").expandingTildeInPath
+    
+    var profiles: [(name: String, arg: String)] = []
+    
+    if FileManager.default.fileExists(atPath: path) {
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let profileNode = json["profile"] as? [String: Any],
+               let infoCache = profileNode["info_cache"] as? [String: [String: Any]] {
+                
+                for (dirName, cacheData) in infoCache {
+                    if let name = cacheData["name"] as? String {
+                        profiles.append((name: name, arg: "--profile-directory=\(dirName)"))
+                    }
+                }
+            }
+        } catch {
+            print("Error parsing Brave profiles: \(error)")
+        }
+    }
+    
+    // Sort profiles alphabetically
+    profiles.sort { $0.name < $1.name }
+    return profiles
 }
 
 // Function to find installed browsers
@@ -28,35 +63,175 @@ func getInstalledBrowsers() -> [BrowserItem] {
     for (name, bundleId) in commonBrowsers {
         if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
             let icon = NSWorkspace.shared.icon(forFile: url.path)
-            installed.append(BrowserItem(name: name, bundleId: bundleId, icon: icon))
+            
+            // Special handling for Brave profiles
+            if bundleId == "com.brave.Browser" {
+                let profiles = getBraveProfiles()
+                if profiles.count > 0 {
+                    for profile in profiles {
+                        installed.append(BrowserItem(name: "Brave (\(profile.name))", bundleId: bundleId, icon: icon, profileArg: profile.arg))
+                    }
+                } else {
+                    installed.append(BrowserItem(name: name, bundleId: bundleId, icon: icon, profileArg: nil))
+                }
+            } else {
+                installed.append(BrowserItem(name: name, bundleId: bundleId, icon: icon, profileArg: nil))
+            }
         }
     }
     
     return installed
 }
 
+class BrowserSettings: ObservableObject {
+    @Published var hiddenBrowsers: Set<String> {
+        didSet {
+            UserDefaults.standard.set(Array(hiddenBrowsers), forKey: "hiddenBrowsers")
+        }
+    }
+    
+    @Published var allBrowsers: [BrowserItem] = []
+    
+    init() {
+        if let saved = UserDefaults.standard.array(forKey: "hiddenBrowsers") as? [String] {
+            self.hiddenBrowsers = Set(saved)
+        } else {
+            self.hiddenBrowsers = []
+        }
+        self.refresh()
+    }
+    
+    func refresh() {
+        self.allBrowsers = getInstalledBrowsers()
+    }
+    
+    var visibleBrowsers: [BrowserItem] {
+        allBrowsers.filter { !hiddenBrowsers.contains($0.id) }
+    }
+}
+
 struct ContentView: View {
     let url: URL?
-    let browsers: [BrowserItem]
+    @ObservedObject var settings = BrowserSettings()
+    @State private var showingSettings = false
     
     var body: some View {
-        VStack(spacing: 20) {
-            if let url = url {
-                Text(url.absoluteString)
-                    .font(.system(.body, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .padding(.horizontal)
-                    .padding(.top, 20)
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                if let url = url {
+                    Text(url.absoluteString)
+                        .font(.system(.body, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } else {
+                    Text(showingSettings ? "Settings" : "Select a Browser")
+                        .font(.headline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                Button(action: {
+                    withAnimation {
+                        showingSettings.toggle()
+                    }
+                }) {
+                    Image(systemName: showingSettings ? "xmark.circle.fill" : "gearshape.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 16))
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding()
+            
+            Divider()
+            
+            if showingSettings {
+                SettingsView(settings: settings)
             } else {
-                Text("Select a Browser")
-                    .font(.headline)
-                    .padding(.top, 20)
+                BrowserListView(browsers: settings.visibleBrowsers, url: url)
+            }
+        }
+        .frame(width: 340)
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+    }
+}
+
+struct SettingsView: View {
+    @ObservedObject var settings: BrowserSettings
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Installed Browsers")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Spacer()
+                Button("Refresh") {
+                    settings.refresh()
+                }
+                .buttonStyle(BorderlessButtonStyle())
+                .font(.subheadline)
+                .foregroundColor(.blue)
             }
             
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(browsers.enumerated()), id: \.element.bundleId) { index, browser in
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(settings.allBrowsers, id: \.id) { browser in
+                        HStack {
+                            Image(nsImage: browser.icon)
+                                .resizable()
+                                .frame(width: 24, height: 24)
+                            Text(browser.name)
+                                .font(.system(size: 14))
+                            Spacer()
+                            
+                            Toggle("", isOn: Binding(
+                                get: { !settings.hiddenBrowsers.contains(browser.id) },
+                                set: { show in
+                                    if show {
+                                        settings.hiddenBrowsers.remove(browser.id)
+                                    } else {
+                                        settings.hiddenBrowsers.insert(browser.id)
+                                    }
+                                }
+                            ))
+                            .toggleStyle(SwitchToggleStyle(tint: .blue))
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 8)
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                        .cornerRadius(6)
+                    }
+                }
+            }
+            .frame(maxHeight: 250)
+            
+            Text("Tip: Hidden browsers will not appear in the picker.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.top, 4)
+        }
+        .padding()
+    }
+}
+
+struct BrowserListView: View {
+    let browsers: [BrowserItem]
+    let url: URL?
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if browsers.isEmpty {
+                Text("No visible browsers found.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding()
+            } else {
+                ForEach(Array(browsers.enumerated()), id: \.element.id) { index, browser in
                     HStack(spacing: 16) {
                         Text("\(index + 1)")
                             .font(.system(size: 14, weight: .bold, design: .monospaced))
@@ -80,13 +255,14 @@ struct ContentView: View {
                     .background(Color(NSColor.controlBackgroundColor))
                     .cornerRadius(8)
                     .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+                    // Make clickable
+                    .onTapGesture {
+                        AppDelegate.shared.openURL(in: browser)
+                    }
                 }
             }
-            .padding(.horizontal)
-            .padding(.bottom, 20)
         }
-        .frame(width: 320)
-        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
+        .padding()
     }
 }
 
@@ -110,10 +286,11 @@ struct VisualEffectView: NSViewRepresentable {
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    static let shared = AppDelegate()
     var window: NSWindow!
     var openedURL: URL?
-    var browsers: [BrowserItem] = []
     var eventMonitor: Any?
+    let settingsStore = BrowserSettings()
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -126,21 +303,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // App behaves as an LSUIElement, so we must manually ensure it gets focus
         NSApp.activate(ignoringOtherApps: true)
         
-        browsers = getInstalledBrowsers()
-        
-        // Setup the window
-        let contentView = ContentView(url: openedURL, browsers: browsers)
+        let contentView = ContentView(url: openedURL, settings: settingsStore)
         
         window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 100),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered, defer: false
         )
         
-        // Hide title bar
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.standardWindowButton(.closeButton)?.isHidden = true
@@ -152,7 +324,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = NSHostingView(rootView: contentView)
         window.makeKeyAndOrderFront(nil)
         
-        // Monitor keyboard events
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
             
@@ -161,18 +332,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             
+            // Only process number keys if we are NOT in the settings view.
+            // But we don't strictly know state here easily. So we just map numbers to visible browsers.
             if let chars = event.charactersIgnoringModifiers, let num = Int(chars) {
-                if num > 0 && num <= self.browsers.count {
-                    self.openURL(in: self.browsers[num - 1].bundleId)
+                let visible = self.settingsStore.visibleBrowsers
+                if num > 0 && num <= visible.count {
+                    self.openURL(in: visible[num - 1])
                     return nil
                 }
             }
             return event
-        }
-        
-        // If we didn't receive a URL on launch, we might just be testing the app
-        if openedURL == nil {
-            print("Launched without URL. Showing UI for testing.")
         }
     }
 
@@ -180,19 +349,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
            let url = URL(string: urlString) {
             self.openedURL = url
-            
-            // If the window is already up (e.g. app was somehow running), update it.
-            // But usually this app will launch, get the URL, show window, open, and terminate.
         }
     }
     
-    func openURL(in bundleId: String) {
-        guard let appUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else {
+    func openURL(in browser: BrowserItem) {
+        guard let appUrl = NSWorkspace.shared.urlForApplication(withBundleIdentifier: browser.bundleId) else {
             NSApplication.shared.terminate(nil)
             return
         }
         
         let config = NSWorkspace.OpenConfiguration()
+        if let arg = browser.profileArg {
+            config.arguments = [arg]
+        }
+        
         if let urlToOpen = openedURL {
             NSWorkspace.shared.open([urlToOpen], withApplicationAt: appUrl, configuration: config) { _, _ in
                 DispatchQueue.main.async {
@@ -200,7 +370,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         } else {
-            // Just open the browser if no URL was provided
             NSWorkspace.shared.openApplication(at: appUrl, configuration: config) { _, _ in
                 DispatchQueue.main.async {
                     NSApplication.shared.terminate(nil)
@@ -210,8 +379,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-// Entry point
 let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
+app.delegate = AppDelegate.shared
 app.run()
