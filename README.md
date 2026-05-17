@@ -2,7 +2,9 @@
 
 BrowserPicker is a lightweight, native macOS application that intercepts clicked web links and allows you to choose which browser to open them in by simply typing a number key.
 
-![BrowserPicker Screenshot](screenshot.png)
+![BrowserPicker Screenshot](assets/screenshot.png)
+![BrowserPicker Screenshot](assets/screenshotSettings.png)
+
 
 ## Features
 
