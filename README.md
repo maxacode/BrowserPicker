@@ -9,6 +9,8 @@ BrowserPicker is a lightweight, native macOS application that intercepts clicked
 - **Fast & Lightweight**: Built with Swift and SwiftUI.
 - **Keyboard Centric**: Select your browser instantly using number keys (1, 2, 3, etc.).
 - **Auto-Detection**: Automatically finds installed browsers like Safari, Chrome, Firefox, Brave, Arc, Edge, and more.
+- **Works everywhere**: Works in any app that opens links.
+- **Multiple Profiles for the same browser**: For example you can have multiple Chrome/Brave profiles and choose between them.
 - **Privacy Focused**: No tracking, no data collection. Just a simple routing tool.
 
 ## Installation
