@@ -1,0 +1,7 @@
+.DS_Store
+BrowserPicker.app/
+BrowserPicker.zip
+BrowserPicker-Notarized.zip
+certificate.p12
+*.swiftdoc
+*.swiftmodule
