@@ -8,13 +8,25 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
-    permissions:
-      contents: write
+  build:
     runs-on: macos-latest
+    outputs:
+      tag_name: ${{ steps.vars.outputs.tag_name }}
+      release_name: ${{ steps.vars.outputs.release_name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set Variables
+        id: vars
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "tag_name=v1.0" >> $GITHUB_OUTPUT
+            echo "release_name=BrowserPicker v1.0" >> $GITHUB_OUTPUT
+          else
+            echo "tag_name=v1.0-dev.${{ github.run_number }}" >> $GITHUB_OUTPUT
+            echo "release_name=BrowserPicker v1.0 (Dev build #${{ github.run_number }})" >> $GITHUB_OUTPUT
+          fi
 
       - name: Validate notarization credentials
         shell: bash
@@ -33,27 +45,17 @@ jobs:
 
       - name: Build Application Bundle
         run: |
-          # Clean up any existing build products
           rm -rf BrowserPicker.app
-          
           mkdir -p BrowserPicker.app/Contents/MacOS
           mkdir -p BrowserPicker.app/Contents/Resources
-          
-          # Copy App Icon
           if [ -f "AppIcon.icns" ]; then
             cp AppIcon.icns BrowserPicker.app/Contents/Resources/
           fi
-          
-          # Compile Swift code for both architectures (Universal Binary)
           xcrun -sdk macosx swiftc main.swift -target x86_64-apple-macos11.0 -o BrowserPicker-x86_64
           xcrun -sdk macosx swiftc main.swift -target arm64-apple-macos11.0 -o BrowserPicker-arm64
           lipo -create BrowserPicker-x86_64 BrowserPicker-arm64 -output BrowserPicker.app/Contents/MacOS/BrowserPicker
           rm BrowserPicker-x86_64 BrowserPicker-arm64
-          
-          # Create PkgInfo
           echo -n "APPL????" > BrowserPicker.app/Contents/PkgInfo
-          
-          # Copy Info.plist
           cp Info.plist.example BrowserPicker.app/Contents/Info.plist
 
       - name: Setup macOS Signing
@@ -62,20 +64,14 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
-          echo "Setting up temporary keychain..."
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
           security create-keychain -p "password" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "password" "$KEYCHAIN_PATH"
-          
-          echo "Decoding and importing certificate..."
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -A
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "password" "$KEYCHAIN_PATH"
-          
-          # Add the temporary keychain to the search list
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
-          
           rm certificate.p12
 
       - name: Sign, Notarize, and Staple Application
@@ -85,31 +81,39 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # 1. Sign the app with the hardened runtime and a secure timestamp
           codesign --force --options runtime --timestamp --deep --sign "$APPLE_SIGNING_IDENTITY" BrowserPicker.app
-          
-          # 2. Zip the app for submission
           /usr/bin/ditto -c -k --keepParent BrowserPicker.app BrowserPicker.zip
-          
-          # 3. Submit to Apple for notarization and wait for the result
           xcrun notarytool submit BrowserPicker.zip \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
-            
-          # 4. Staple the notarization ticket directly to the app bundle
           xcrun stapler staple BrowserPicker.app
-          
-          # 5. Create the final distribution zip
           /usr/bin/ditto -c -k --keepParent BrowserPicker.app BrowserPicker-Notarized.zip
 
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BrowserPicker-Notarized
+          path: BrowserPicker-Notarized.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
+    steps:
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: BrowserPicker-Notarized
+
       - name: Create Release
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref == 'refs/heads/main' && 'v1.0' || format('v1.0-dev.{0}', github.run_number) }}
-          name: ${{ github.ref == 'refs/heads/main' && 'BrowserPicker v1.0' || format('BrowserPicker v1.0 (Dev build #{0})', github.run_number) }}
+          tag_name: ${{ needs.build.outputs.tag_name }}
+          name: ${{ needs.build.outputs.release_name }}
           body: |
             ${{ github.ref == 'refs/heads/main' && 'Stable release' || 'Development build - may be unstable.' }}
             Branch: `${{ github.ref_name }}` | Run: #${{ github.run_number }} | Commit: ${{ github.sha }}
