@@ -104,8 +104,16 @@ jobs:
           # 5. Create the final distribution zip
           /usr/bin/ditto -c -k --keepParent BrowserPicker.app BrowserPicker-Notarized.zip
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Create Release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
+        uses: softprops/action-gh-release@v2
         with:
-          name: BrowserPicker
-          path: BrowserPicker.app
+          tag_name: ${{ github.ref == 'refs/heads/main' && 'v1.0' || format('v1.0-dev.{0}', github.run_number) }}
+          name: ${{ github.ref == 'refs/heads/main' && 'BrowserPicker v1.0' || format('BrowserPicker v1.0 (Dev build #{0})', github.run_number) }}
+          body: |
+            ${{ github.ref == 'refs/heads/main' && 'Stable release' || 'Development build - may be unstable.' }}
+            Branch: `${{ github.ref_name }}` | Run: #${{ github.run_number }} | Commit: ${{ github.sha }}
+          files: BrowserPicker-Notarized.zip
+          prerelease: ${{ github.ref == 'refs/heads/dev' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
