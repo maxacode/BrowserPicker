@@ -33,14 +33,76 @@ jobs:
 
       - name: Build Application Bundle
         run: |
+          # Clean up any existing build products
+          rm -rf BrowserPicker.app
+          
           mkdir -p BrowserPicker.app/Contents/MacOS
           mkdir -p BrowserPicker.app/Contents/Resources
+          
+          # Copy App Icon
           if [ -f "AppIcon.icns" ]; then
             cp AppIcon.icns BrowserPicker.app/Contents/Resources/
           fi
-          xcrun -sdk macosx swiftc main.swift -o BrowserPicker.app/Contents/MacOS/BrowserPicker
+          
+          # Compile Swift code for both architectures (Universal Binary)
+          xcrun -sdk macosx swiftc main.swift -target x86_64-apple-macos11.0 -o BrowserPicker-x86_64
+          xcrun -sdk macosx swiftc main.swift -target arm64-apple-macos11.0 -o BrowserPicker-arm64
+          lipo -create BrowserPicker-x86_64 BrowserPicker-arm64 -output BrowserPicker.app/Contents/MacOS/BrowserPicker
+          rm BrowserPicker-x86_64 BrowserPicker-arm64
+          
+          # Create PkgInfo
           echo -n "APPL????" > BrowserPicker.app/Contents/PkgInfo
+          
+          # Copy Info.plist
           cp Info.plist.example BrowserPicker.app/Contents/Info.plist
+
+      - name: Setup macOS Signing
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "Setting up temporary keychain..."
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          security create-keychain -p "password" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "password" "$KEYCHAIN_PATH"
+          
+          echo "Decoding and importing certificate..."
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security import certificate.p12 -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -A
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "password" "$KEYCHAIN_PATH"
+          
+          # Add the temporary keychain to the search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | xargs)
+          
+          rm certificate.p12
+
+      - name: Sign, Notarize, and Staple Application
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # 1. Sign the app with the hardened runtime and a secure timestamp
+          codesign --force --options runtime --timestamp --deep --sign "$APPLE_SIGNING_IDENTITY" BrowserPicker.app
+          
+          # 2. Zip the app for submission
+          /usr/bin/ditto -c -k --keepParent BrowserPicker.app BrowserPicker.zip
+          
+          # 3. Submit to Apple for notarization and wait for the result
+          xcrun notarytool submit BrowserPicker.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+            
+          # 4. Staple the notarization ticket directly to the app bundle
+          xcrun stapler staple BrowserPicker.app
+          
+          # 5. Create the final distribution zip
+          /usr/bin/ditto -c -k --keepParent BrowserPicker.app BrowserPicker-Notarized.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
