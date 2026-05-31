@@ -30,7 +30,7 @@ jobs:
             --password "$APPLE_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             2>&1 | tail -10
-          echo "Credentials OK — proceeding to build."
+          echo "Credentials OK - proceeding to build."
 
       - name: Build Application Bundle
         run: |
