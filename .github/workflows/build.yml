@@ -9,10 +9,27 @@ on:
 
 jobs:
   release:
+    permissions:
+      contents: write
     runs-on: macos-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate notarization credentials
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          echo "Testing Apple notarization credentials (notarytool history)..."
+          xcrun notarytool history \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            2>&1 | tail -10
+          echo "Credentials OK - proceeding to build."
 
       - name: Build Application Bundle
         run: |
