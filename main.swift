@@ -90,19 +90,85 @@ class BrowserSettings: ObservableObject {
         }
     }
     
+    @Published var browserOrder: [String] {
+        didSet {
+            UserDefaults.standard.set(browserOrder, forKey: "browserOrder")
+        }
+    }
+    
     @Published var allBrowsers: [BrowserItem] = []
+    @Published var isDefaultBrowser: Bool = false
     
     init() {
-        if let saved = UserDefaults.standard.array(forKey: "hiddenBrowsers") as? [String] {
-            self.hiddenBrowsers = Set(saved)
+        if let savedHidden = UserDefaults.standard.array(forKey: "hiddenBrowsers") as? [String] {
+            self.hiddenBrowsers = Set(savedHidden)
         } else {
             self.hiddenBrowsers = []
         }
+        
+        if let savedOrder = UserDefaults.standard.array(forKey: "browserOrder") as? [String] {
+            self.browserOrder = savedOrder
+        } else {
+            self.browserOrder = []
+        }
+        
         self.refresh()
+        self.checkDefaultBrowserStatus()
     }
     
     func refresh() {
-        self.allBrowsers = getInstalledBrowsers()
+        let detected = getInstalledBrowsers()
+        
+        // Update allBrowsers but respect the order
+        var ordered: [BrowserItem] = []
+        
+        // First add browsers that are in the saved order
+        for id in browserOrder {
+            if let match = detected.first(where: { $0.id == id }) {
+                ordered.append(match)
+            }
+        }
+        
+        // Then add any newly detected browsers that weren't in the saved order
+        for browser in detected {
+            if !browserOrder.contains(browser.id) {
+                ordered.append(browser)
+            }
+        }
+        
+        self.allBrowsers = ordered
+        self.syncOrder()
+    }
+    
+    func syncOrder() {
+        self.browserOrder = allBrowsers.map { $0.id }
+    }
+
+    func moveBrowser(from source: IndexSet, to destination: Int) {
+        allBrowsers.move(fromOffsets: source, toOffset: destination)
+        syncOrder()
+    }
+
+    func checkDefaultBrowserStatus() {
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.user.BrowserPicker"
+        let testURL = URL(string: "https://apple.com")!
+        if let defaultAppURL = NSWorkspace.shared.urlForApplication(toOpen: testURL) {
+            let info = Bundle(url: defaultAppURL)
+            let currentBundleId = info?.bundleIdentifier ?? ""
+            isDefaultBrowser = (currentBundleId == bundleId)
+        }
+    }
+
+    func setAsDefaultBrowser() {
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.user.BrowserPicker"
+        LSSetDefaultHandlerForURLScheme("http" as CFString, bundleId as CFString)
+        LSSetDefaultHandlerForURLScheme("https" as CFString, bundleId as CFString)
+        LSSetDefaultRoleHandlerForContentType("public.html" as CFString, .viewer, bundleId as CFString)
+        
+        // Re-check after a short delay because the system dialog might be shown
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.checkDefaultBrowserStatus()
+        }
     }
     
     var visibleBrowsers: [BrowserItem] {
@@ -177,39 +243,72 @@ struct SettingsView: View {
                 .foregroundColor(.blue)
             }
             
-            ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(settings.allBrowsers, id: \.id) { browser in
-                        HStack {
-                            Image(nsImage: browser.icon)
-                                .resizable()
-                                .frame(width: 24, height: 24)
-                            Text(browser.name)
-                                .font(.system(size: 14))
-                            Spacer()
-                            
-                            Toggle("", isOn: Binding(
-                                get: { !settings.hiddenBrowsers.contains(browser.id) },
-                                set: { show in
-                                    if show {
-                                        settings.hiddenBrowsers.remove(browser.id)
-                                    } else {
-                                        settings.hiddenBrowsers.insert(browser.id)
-                                    }
+            List {
+                ForEach(settings.allBrowsers, id: \.id) { browser in
+                    HStack {
+                        Image(systemName: "line.3.horizontal")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 12))
+                        
+                        Image(nsImage: browser.icon)
+                            .resizable()
+                            .frame(width: 20, height: 20)
+                        
+                        Text(browser.name)
+                            .font(.system(size: 13))
+                        
+                        Spacer()
+                        
+                        Toggle("", isOn: Binding(
+                            get: { !settings.hiddenBrowsers.contains(browser.id) },
+                            set: { show in
+                                if show {
+                                    settings.hiddenBrowsers.remove(browser.id)
+                                } else {
+                                    settings.hiddenBrowsers.insert(browser.id)
                                 }
-                            ))
-                            .toggleStyle(SwitchToggleStyle(tint: .blue))
-                        }
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 8)
-                        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                        .cornerRadius(6)
+                            }
+                        ))
+                        .toggleStyle(SwitchToggleStyle(tint: .blue))
+                        .scaleEffect(0.8)
                     }
+                    .padding(.vertical, 2)
+                    .listRowBackground(Color.clear)
+                }
+                .onMove(perform: settings.moveBrowser)
+            }
+            .listStyle(PlainListStyle())
+            .frame(maxHeight: 350) // Increased height
+            
+            Divider()
+            
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Default Browser")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Text(settings.isDefaultBrowser ? "Currently set as default" : "Not set as default")
+                        .font(.caption)
+                        .foregroundColor(settings.isDefaultBrowser ? .green : .secondary)
+                }
+                
+                Spacer()
+                
+                if !settings.isDefaultBrowser {
+                    Button("Set as Default") {
+                        settings.setAsDefaultBrowser()
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(6)
                 }
             }
-            .frame(maxHeight: 250)
+            .padding(.top, 4)
             
-            Text("Tip: Hidden browsers will not appear in the picker.")
+            Text("Tip: Drag browsers to reorder them.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.top, 4)
@@ -217,6 +316,7 @@ struct SettingsView: View {
         .padding()
     }
 }
+
 
 struct BrowserListView: View {
     let browsers: [BrowserItem]
@@ -343,6 +443,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return event
         }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        settingsStore.checkDefaultBrowserStatus()
     }
 
     @objc func handleGetURLEvent(event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {

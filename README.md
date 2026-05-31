@@ -11,8 +11,9 @@ BrowserPicker is a lightweight, native macOS application that intercepts clicked
 - **Fast & Lightweight**: Built with Swift and SwiftUI.
 - **Keyboard Centric**: Select your browser instantly using number keys (1, 2, 3, etc.).
 - **Auto-Detection**: Automatically finds installed browsers like Safari, Chrome, Firefox, Brave, Arc, Edge, and more.
-- **Works everywhere**: Works in any app that opens links.
-- **Multiple Profiles for the same browser**: For example you can have multiple Chrome/Brave profiles and choose between them.
+- **Browser Profiles**: Native support for Brave browser profiles, allowing you to route links to specific profiles.
+- **Default Browser Toggle**: Easily set BrowserPicker as your system default browser directly from the settings.
+- **Customizable List**: Hide browsers you don't use and reorder them to match your preference.
 - **Privacy Focused**: No tracking, no data collection. Just a simple routing tool.
 
 ## Installation
@@ -22,39 +23,31 @@ BrowserPicker is a lightweight, native macOS application that intercepts clicked
 - macOS 11.0 or later.
 - Swift installed (default on macOS).
 
-### Build from Source
+### Build & Install
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/BrowserPicker.git
-   cd BrowserPicker
-   ```
-2. Create the application bundle:
-   ```bash
-   mkdir -p BrowserPicker.app/Contents/MacOS
-   mkdir -p BrowserPicker.app/Contents/Resources
-   ```
-3. Prepare the `Info.plist`:
-   Use the `Info.plist.example` provided and rename it to `Info.plist` inside `BrowserPicker.app/Contents/`.
-4. Compile the code:
-   ```bash
-   swiftc main.swift -o BrowserPicker.app/Contents/MacOS/BrowserPicker
-   ```
-5. Move to Applications:
-   ```bash
-   mv BrowserPicker.app /Applications/
-   ```
+The easiest way to build and install is to use the provided script:
+
+```bash
+./build_local.sh
+```
+
+This will compile the app, sign it locally, and move it to your `/Applications` folder.
 
 ## Setup
 
-1. **Open the App**: Double-click `BrowserPicker.app` in your `/Applications` folder once to register it with macOS.
+1. **Open the App**: Once installed, open BrowserPicker from your Applications folder.
 2. **Set as Default Browser**:
-   - Go to **System Settings** > **Desktop & Dock**.
-   - Find **Default web browser** and select **BrowserPicker**.
+   - Open BrowserPicker.
+   - Click the gear icon (⚙️) to open **Settings**.
+   - Click **"Set as Default"**. macOS will prompt you to confirm BrowserPicker as your default browser.
 
 ## Usage
 
 Whenever you click a link in any app (Mail, Slack, Messages, etc.), BrowserPicker will pop up. Press the number corresponding to your desired browser, and the link will open immediately!
+
+- **Number Keys (1-9)**: Quick-launch a browser.
+- **Esc**: Close the picker without opening a link.
+- **Drag & Drop**: In settings, reorder browsers to change their numeric shortcuts.
 
 ## License
 
