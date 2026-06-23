@@ -392,7 +392,7 @@ struct ContentView: View {
                 BrowserListView(browsers: settings.visibleBrowsers, url: url, settings: settings)
             }
         }
-        .frame(width: 340)
+        .frame(width: settings.showingSettings ? 500 : 340, height: settings.showingSettings ? 500 : nil, alignment: .top)
         .background(VisualEffectView(material: .popover, blendingMode: .behindWindow))
     }
 }
@@ -476,7 +476,7 @@ struct BrowserSettingsView: View {
                 .onMove(perform: settings.moveBrowser)
             }
             .listStyle(PlainListStyle())
-            .frame(maxHeight: 300)
+            .frame(maxHeight: 450)
 
             Divider()
 
@@ -611,7 +611,7 @@ struct RulesSettingsView: View {
                     }
                 }
                 .listStyle(PlainListStyle())
-                .frame(maxHeight: 180)
+                .frame(maxHeight: 300)
             }
 
             Divider()
@@ -716,7 +716,7 @@ struct RulesSettingsView: View {
                     }
                 }
                 .listStyle(PlainListStyle())
-                .frame(maxHeight: 180)
+                .frame(maxHeight: 300)
             }
 
             Divider()
